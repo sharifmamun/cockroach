@@ -252,6 +252,7 @@ func putConfig(db *client.KV, configPrefix proto.Key, config gogoproto.Message,
 // by the request header.
 func getConfig(db *client.KV, configPrefix proto.Key, config gogoproto.Message,
 	path string, r *http.Request) (body []byte, contentType string, err error) {
+	fmt.Printf("**** IN Get!")
 	// Scan all configs if the key is empty.
 	if len(path) == 0 {
 		sr := &proto.ScanResponse{}

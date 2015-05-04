@@ -292,6 +292,7 @@ func TestPermEmptyKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := []string{"key0", "key1"}
+	fmt.Println("**** HERE1?")
 	for _, key := range keys {
 		req, err := http.NewRequest("POST", fmt.Sprintf("%s://%s%s/%s", testContext.RequestScheme(), testContext.Addr,
 			permPathPrefix, key), bytes.NewReader(body))
@@ -320,6 +321,7 @@ func TestPermEmptyKey(t *testing.T) {
 ]`},
 	}
 
+	fmt.Println("**** HERE2?")
 	for i, test := range testCases {
 		req, err := http.NewRequest("GET", fmt.Sprintf("%s://%s%s", testContext.RequestScheme(), testContext.Addr,
 			permPathPrefix), nil)

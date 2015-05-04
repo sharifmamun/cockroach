@@ -33,6 +33,7 @@ import (
 
 	"github.com/cockroachdb/cockroach/client"
 	"github.com/cockroachdb/cockroach/util"
+	"github.com/julienschmidt/httprouter"
 )
 
 const (
@@ -88,29 +89,103 @@ func newAdminServer(db *client.KV, stopper *util.Stopper) *adminServer {
 
 // registerHandlers registers admin handlers with the supplied
 // serve mux.
-func (s *adminServer) registerHandlers(mux *http.ServeMux) {
+func (s *adminServer) registerHandlers(router *httprouter.Router) {
 	// Pass through requests to /debug to the default serve mux so we
 	// get exported variables and pprof tools.
-	mux.HandleFunc(acctPathPrefix, s.handleAcctAction)
-	mux.HandleFunc(acctPathPrefix+"/", s.handleAcctAction)
-	mux.HandleFunc(debugEndpoint, s.handleDebug)
-	mux.HandleFunc(healthPath, s.handleHealth)
-	mux.HandleFunc(quitPath, s.handleQuit)
-	mux.HandleFunc(permPathPrefix, s.handlePermAction)
-	mux.HandleFunc(permPathPrefix+"/", s.handlePermAction)
-	mux.HandleFunc(zonePathPrefix, s.handleZoneAction)
-	mux.HandleFunc(zonePathPrefix+"/", s.handleZoneAction)
+	router.GET("/_admin/acct", s.handleGetAction(s.acct, acctPathPrefix))
+	router.GET("/_admin/acct/:key", s.handleGetAction(s.acct, acctPathPrefix))
+	router.PUT("/_admin/acct/:key", s.handlePutAction(s.acct, acctPathPrefix))
+	router.POST("/_admin/acct/:key", s.handlePutAction(s.acct, acctPathPrefix))
+	router.DELETE("/_admin/acct/:key", s.handleDeleteAction(s.acct, acctPathPrefix))
+
+	router.GET("/_admin/perms", s.handleGetAction(s.perm, permPathPrefix))
+	router.GET("/_admin/perms/:key", s.handleGetAction(s.perm, permPathPrefix))
+	router.PUT("/_admin/perms/:key", s.handlePutAction(s.perm, permPathPrefix))
+	router.POST("/_admin/perms/:key", s.handlePutAction(s.perm, permPathPrefix))
+	router.DELETE("/_admin/perms/:key", s.handleDeleteAction(s.perm, permPathPrefix))
+
+	router.GET("/_admin/zones", s.handleGetAction(s.zone, zonePathPrefix))
+	router.PUT("/_admin/zones/:key", s.handlePutAction(s.zone, zonePathPrefix))
+	router.POST("/_admin/zones/:key", s.handlePutAction(s.zone, zonePathPrefix))
+	router.DELETE("/_admin/zones/:key", s.handleDeleteAction(s.zone, zonePathPrefix))
+
+	router.GET(healthPath, s.handleHealth)
+	router.GET(quitPath, s.handleQuit)
+
+	router.HandlerFunc("GET", debugEndpoint, s.handleDebug)
+	router.HandlerFunc("PUT", debugEndpoint, s.handleDebug)
+	router.HandlerFunc("POST", debugEndpoint, s.handleDebug)
+	router.HandlerFunc("DELETE", debugEndpoint, s.handleDebug)
+
+	a := "/_admin/perms/key0"
+	b, c, d := router.Lookup("POST", a)
+	fmt.Printf("**** lookup:\n%v\n%v\n%v\n", b, c, d)
+
+}
+
+func (s *adminServer) handleGetAction(handler actionHandler, prefix string) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		path, err := unescapePath(r.URL.Path, prefix)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		b, contentType, err := handler.Get(path, r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", contentType)
+		fmt.Fprintf(w, "%s", string(b))
+	}
+}
+
+func (s *adminServer) handlePutAction(handler actionHandler, prefix string) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		fmt.Printf("**** handle put action\n")
+		path, err := unescapePath(r.URL.Path, prefix)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
+		if err = handler.Put(path, b, r); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (s *adminServer) handleDeleteAction(handler actionHandler, prefix string) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		path, err := unescapePath(r.URL.Path, prefix)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err = handler.Delete(path, r); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
 }
 
 // handleHealth responds to health requests from monitoring services.
-func (s *adminServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+func (s *adminServer) handleHealth(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintln(w, "ok")
 }
 
 // handleQuit is the shutdown hook. The server is first placed into a
 // draining mode, followed by exit.
-func (s *adminServer) handleQuit(w http.ResponseWriter, r *http.Request) {
+func (s *adminServer) handleQuit(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintln(w, "ok")
 	go s.stopper.Stop()
@@ -124,86 +199,10 @@ func (s *adminServer) handleDebug(w http.ResponseWriter, r *http.Request) {
 	handler.ServeHTTP(w, r)
 }
 
-// handleAcctAction handles actions for accounting configuration by method.
-func (s *adminServer) handleAcctAction(w http.ResponseWriter, r *http.Request) {
-	s.handleRESTAction(s.acct, w, r, acctPathPrefix)
-}
-
-// handlePermAction handles actions for perm configuration by method.
-func (s *adminServer) handlePermAction(w http.ResponseWriter, r *http.Request) {
-	s.handleRESTAction(s.perm, w, r, permPathPrefix)
-}
-
-// handleZoneAction handles actions for zone configuration by method.
-func (s *adminServer) handleZoneAction(w http.ResponseWriter, r *http.Request) {
-	s.handleRESTAction(s.zone, w, r, zonePathPrefix)
-}
-
-// handleRESTAction handles RESTful admin actions.
-func (s *adminServer) handleRESTAction(handler actionHandler, w http.ResponseWriter, r *http.Request, prefix string) {
-	switch r.Method {
-	case "GET":
-		s.handleGetAction(handler, w, r, prefix)
-	case "PUT", "POST":
-		s.handlePutAction(handler, w, r, prefix)
-	case "DELETE":
-		s.handleDeleteAction(handler, w, r, prefix)
-	default:
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-	}
-}
-
 func unescapePath(path, prefix string) (string, error) {
 	result, err := url.QueryUnescape(strings.TrimPrefix(path, prefix))
 	if err != nil {
 		return "", err
 	}
 	return result, nil
-}
-
-func (s *adminServer) handlePutAction(handler actionHandler, w http.ResponseWriter, r *http.Request, prefix string) {
-	path, err := unescapePath(r.URL.Path, prefix)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	b, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	defer r.Body.Close()
-	if err = handler.Put(path, b, r); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
-}
-
-func (s *adminServer) handleGetAction(handler actionHandler, w http.ResponseWriter, r *http.Request, prefix string) {
-	path, err := unescapePath(r.URL.Path, prefix)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	b, contentType, err := handler.Get(path, r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	fmt.Fprintf(w, "%s", string(b))
-}
-
-func (s *adminServer) handleDeleteAction(handler actionHandler, w http.ResponseWriter, r *http.Request, prefix string) {
-	path, err := unescapePath(r.URL.Path, prefix)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if err = handler.Delete(path, r); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusOK)
 }

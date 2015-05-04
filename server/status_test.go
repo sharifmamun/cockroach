@@ -34,6 +34,7 @@ import (
 	"github.com/cockroachdb/cockroach/storage/engine"
 	"github.com/cockroachdb/cockroach/util"
 	"github.com/cockroachdb/cockroach/util/log"
+	"github.com/julienschmidt/httprouter"
 )
 
 // startStatusServer launches a new status server using minimal engine
@@ -47,9 +48,9 @@ func startStatusServer() (*httptest.Server, *util.Stopper) {
 		log.Fatal(err)
 	}
 	status := newStatusServer(db, nil)
-	mux := http.NewServeMux()
-	status.registerHandlers(mux)
-	httpServer := httptest.NewTLSServer(mux)
+	router := httprouter.New()
+	status.registerHandlers(router)
+	httpServer := httptest.NewTLSServer(router)
 	stopper.AddCloser(httpServer)
 	return httpServer, stopper
 }
@@ -270,8 +271,8 @@ func startServerAndGetStatus(t *testing.T, keyPrefix string) (*TestServer, []byt
 // TestNodeStatusResponse verifies that node status returns the expected
 // results.
 // TODO(Bram): Add more nodes.
-func TestNodeStatusResponse(t *testing.T) {
-	ts, body := startServerAndGetStatus(t, statusNodeKeyPrefix)
+func TestNodesStatusResponse(t *testing.T) {
+	ts, body := startServerAndGetStatus(t, statusNodesKeyPrefix)
 	defer ts.Stop()
 	nodeStatuses := []proto.NodeStatus{}
 	if err := json.Unmarshal(body, &nodeStatuses); err != nil {
@@ -289,8 +290,8 @@ func TestNodeStatusResponse(t *testing.T) {
 // TestStoreStatusResponse verifies that node status returns the expected
 // results.
 // TODO(Bram): Add more nodes.
-func TestStoreStatusResponse(t *testing.T) {
-	ts, body := startServerAndGetStatus(t, statusStoreKeyPrefix)
+func TestStoresStatusResponse(t *testing.T) {
+	ts, body := startServerAndGetStatus(t, statusStoresKeyPrefix)
 	defer ts.Stop()
 	storeStatuses := []proto.StoreStatus{}
 	if err := json.Unmarshal(body, &storeStatuses); err != nil {

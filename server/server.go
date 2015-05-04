@@ -40,6 +40,7 @@ import (
 	"github.com/cockroachdb/cockroach/util/hlc"
 	"github.com/cockroachdb/cockroach/util/log"
 	assetfs "github.com/elazarl/go-bindata-assetfs"
+	"github.com/julienschmidt/httprouter"
 	"golang.org/x/net/context"
 )
 
@@ -54,7 +55,7 @@ var (
 type Server struct {
 	ctx *Context
 
-	mux            *http.ServeMux
+	router         *httprouter.Router
 	clock          *hlc.Clock
 	rpc            *rpc.Server
 	gossip         *gossip.Gossip
@@ -92,7 +93,7 @@ func NewServer(ctx *Context, stopper *util.Stopper) (*Server, error) {
 
 	s := &Server{
 		ctx:     ctx,
-		mux:     http.NewServeMux(),
+		router:  httprouter.New(),
 		clock:   hlc.NewClock(hlc.UnixNano),
 		stopper: stopper,
 	}
@@ -169,18 +170,26 @@ func (s *Server) Start(selfBootstrap bool) error {
 }
 
 func (s *Server) initHTTP() {
-	s.mux.Handle("/", http.FileServer(
-		&assetfs.AssetFS{Asset: resource.Asset, AssetDir: resource.AssetDir, Prefix: "./ui/"}))
+	fileServer := http.FileServer(&assetfs.AssetFS{Asset: resource.Asset, AssetDir: resource.AssetDir, Prefix: "./ui/"})
+	s.router.Handler("GET", "/", fileServer)
+	s.router.Handler("POST", "/", fileServer)
+	s.router.Handler("PUT", "/", fileServer)
+	s.router.Handler("DELETE", "/", fileServer)
 
 	// Admin handlers.
-	s.admin.registerHandlers(s.mux)
+	s.admin.registerHandlers(s.router)
 
 	// Status endpoints:
-	s.status.registerHandlers(s.mux)
+	s.status.registerHandlers(s.router)
 
-	s.mux.Handle(kv.RESTPrefix, s.kvREST)
-	s.mux.Handle(kv.DBPrefix, s.kvDB)
-	s.mux.Handle(structured.StructuredKeyPrefix, s.structuredREST)
+	s.router.HandlerFunc("GET", kv.RESTPrefix, s.kvREST)
+	s.router.HandlerFunc("POST", kv.RESTPrefix, s.kvREST)
+	s.router.HandlerFunc("PUT", kv.RESTPrefix, s.kvREST)
+	s.router.HandlerFunc("DELETE", kv.RESTPrefix, s.kvREST)
+	/*	s.mux.Handle(kv.RESTPrefix, s.kvREST)
+		s.mux.Handle(kv.DBPrefix, s.kvDB)
+		s.mux.Handle(structured.StructuredKeyPrefix, s.structuredREST)
+	*/
 }
 
 // Stop stops the server.
@@ -214,7 +223,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer gzw.Close()
 		w = gzw
 	}
-	s.mux.ServeHTTP(w, r)
+	s.router.RedirectFixedPath = true
+	s.router.RedirectTrailingSlash = true
+	s.router.ServeHTTP(w, r)
 }
 
 type gzipResponseWriter struct {

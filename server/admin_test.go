@@ -20,7 +20,6 @@ package server
 import (
 	"encoding/json"
 	"io/ioutil"
-	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
@@ -31,6 +30,7 @@ import (
 	"github.com/cockroachdb/cockroach/testutils"
 	"github.com/cockroachdb/cockroach/util"
 	"github.com/cockroachdb/cockroach/util/log"
+	"github.com/julienschmidt/httprouter"
 )
 
 // startAdminServer launches a new admin server using minimal engine
@@ -44,9 +44,9 @@ func startAdminServer() (string, *util.Stopper) {
 		log.Fatal(err)
 	}
 	admin := newAdminServer(db, stopper)
-	mux := http.NewServeMux()
-	admin.registerHandlers(mux)
-	httpServer := httptest.NewTLSServer(mux)
+	router := httprouter.New()
+	admin.registerHandlers(router)
+	httpServer := httptest.NewTLSServer(router)
 	stopper.AddCloser(httpServer)
 
 	if strings.HasPrefix(httpServer.URL, "http://") {

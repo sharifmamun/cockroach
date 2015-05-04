@@ -28,6 +28,7 @@ import (
 // sendAdminRequest send an HTTP request and processes the response for
 // its body or error message if a non-200 response code.
 func sendAdminRequest(ctx *Context, req *http.Request) ([]byte, error) {
+	fmt.Printf("**** send admin request\nctx:%+v\nreq:%+v\n", ctx, req)
 	client, err := ctx.GetHTTPClient()
 	if err != nil {
 		return nil, util.Errorf("failed to initialized http client: %s", err)
