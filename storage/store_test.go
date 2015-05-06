@@ -387,7 +387,7 @@ func TestStoreRangeIterator(t *testing.T) {
 
 	// Now, remove the next range in the iteration but verify iteration
 	// continues as expected.
-	rng = store.LookupRange(proto.Key("a01"), proto.Key("a01"))
+	rng = store.LookupRange(proto.Key("a01"), proto.Key("a01").Next())
 	if rng.Desc().RaftID != 2 {
 		t.Errorf("expected fetch of raftID=2; got %d", rng.Desc().RaftID)
 	}
@@ -563,7 +563,7 @@ func TestStoreExecuteCmdBadRange(t *testing.T) {
 // See #702
 // TODO(bdarnell): convert tests that use this function to use AdminSplit instead.
 func splitTestRange(store *Store, key, splitKey proto.Key, t *testing.T) *Range {
-	rng := store.LookupRange(key, key)
+	rng := store.LookupRange(key, key.Next())
 	if rng == nil {
 		t.Fatalf("couldn't lookup range for key %q", key)
 	}
@@ -634,7 +634,7 @@ func TestStoreRangesByKey(t *testing.T) {
 	store, _, stopper := createTestStore(t)
 	defer stopper.Stop()
 
-	r0 := store.LookupRange(engine.KeyMin, engine.KeyMin)
+	r0 := store.LookupRange(engine.KeyMin, engine.KeyMin.Next())
 	r1 := splitTestRange(store, engine.KeyMin, proto.Key("A"), t)
 	r2 := splitTestRange(store, proto.Key("A"), proto.Key("C"), t)
 	r3 := splitTestRange(store, proto.Key("C"), proto.Key("X"), t)
@@ -681,7 +681,7 @@ func TestStoreSetRangesMaxBytes(t *testing.T) {
 		rng         *Range
 		expMaxBytes int64
 	}{
-		{store.LookupRange(engine.KeyMin, engine.KeyMin), 64 << 20},
+		{store.LookupRange(engine.KeyMin, engine.KeyMin.Next()), 64 << 20},
 		{splitTestRange(store, engine.KeyMin, proto.Key("a"), t), 1 << 20},
 		{splitTestRange(store, proto.Key("a"), proto.Key("aa"), t), 1 << 20},
 		{splitTestRange(store, proto.Key("aa"), proto.Key("b"), t), 64 << 20},
