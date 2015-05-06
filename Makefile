@@ -21,8 +21,6 @@
 GO ?= go
 # Allow setting of go build flags from the command line.
 GOFLAGS :=
-# Set to 1 to use static linking for all builds (including tests).
-STATIC :=
 # The cockroach image to be used for starting Docker containers
 # during acceptance tests. Usually cockroachdb/cockroach{,-dev}
 # depending on the context.
@@ -43,18 +41,6 @@ BENCHTIMEOUT := 5m
 STANDARDTESTFLAGS := -logtostderr
 TESTFLAGS         :=
 
-ifeq ($(STATIC),1)
-# The netgo build tag instructs the net package to try to build a
-# Go-only resolver.
-TAGS += netgo
-# The installsuffix makes sure we actually get the netgo build, see
-# https://github.com/golang/go/issues/9369#issuecomment-69864440
-GOFLAGS  += -installsuffix netgo
-LDFLAGS += -extldflags "-lm -lstdc++ -static"
-# rebuild everything.
-GOFLAGS += -a
-endif
-
 .PHONY: all
 all: build test
 
@@ -62,9 +48,14 @@ all: build test
 # to make sure that the 'release' build tag is taken
 # into account.
 .PHONY: release
-release: TAGS += release
-release: GOFLAGS += -a
+release: TAGS += release netgo
+release: GOFLAGS += -a -installsuffix netgo
+release: LDFLAGS += -extldflags "-static"
 release: build
+
+.PHONY: static
+static: LDFLAGS += -extldflags "-static"
+static: build
 
 .PHONY: build
 build: LDFLAGS += -X github.com/cockroachdb/cockroach/util.buildTag "$(shell git describe --dirty)"
